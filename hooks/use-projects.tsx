@@ -15,18 +15,18 @@ export interface Project {
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([])
-  const [loading, setLoading] = useState(true)
-  const { user, connectionError } = useAuth()
+  const [loading, setLoading] = useState(false) // Start with false, only load when needed
+  const { user } = useAuth()
 
   const fetchProjects = async () => {
-    if (!user || connectionError) {
+    if (!user) {
       setProjects([])
       setLoading(false)
       return
     }
 
+    setLoading(true)
     try {
-      console.log('Fetching projects for user:', user.id)
       const { data, error } = await supabase
         .from('projects')
         .select('*')
@@ -34,14 +34,13 @@ export function useProjects() {
         .order('created_at', { ascending: false })
 
       if (error) {
-        console.error('Error fetching projects:', error)
-        throw error
+        console.warn('Error fetching projects (continuing without them):', error)
+        setProjects([])
+      } else {
+        setProjects(data || [])
       }
-      
-      console.log('Fetched projects:', data)
-      setProjects(data || [])
     } catch (error) {
-      console.error('Error fetching projects:', error)
+      console.warn('Error fetching projects (continuing without them):', error)
       setProjects([])
     } finally {
       setLoading(false)
@@ -55,19 +54,10 @@ export function useProjects() {
     social_links?: Record<string, string>
   }) => {
     if (!user) {
-      console.error('User not authenticated')
       return { data: null, error: new Error('User not authenticated') }
     }
 
-    if (connectionError) {
-      console.error('No connection to database')
-      return { data: null, error: new Error('No connection to database service') }
-    }
-
     try {
-      console.log('Creating project with data:', projectData)
-      console.log('User ID:', user.id)
-      
       // Clean up social_links - remove empty values
       const cleanSocialLinks = projectData.social_links ? 
         Object.fromEntries(
@@ -82,27 +72,6 @@ export function useProjects() {
         user_id: user.id,
       }
 
-      console.log('Insert data:', insertData)
-      
-      // Test connection first with a simple query
-      try {
-        const { error: testError } = await supabase
-          .from('projects')
-          .select('count')
-          .eq('user_id', user.id)
-          .limit(1)
-
-        if (testError) {
-          console.error('Connection test failed:', testError)
-          return { data: null, error: testError }
-        }
-      } catch (testError) {
-        console.error('Connection test failed:', testError)
-        return { data: null, error: new Error('Database connection failed') }
-      }
-
-      console.log('Connection test passed, proceeding with insert...')
-
       const { data, error } = await supabase
         .from('projects')
         .insert(insertData)
@@ -111,16 +80,8 @@ export function useProjects() {
 
       if (error) {
         console.error('Supabase error creating project:', error)
-        console.error('Error details:', {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          hint: error.hint
-        })
         return { data: null, error }
       }
-      
-      console.log('Project created successfully:', data)
       
       // Update local state
       setProjects(prev => [data, ...prev])
@@ -132,10 +93,6 @@ export function useProjects() {
   }
 
   const updateProject = async (id: string, updates: Partial<Project>) => {
-    if (connectionError) {
-      return { data: null, error: new Error('No connection to database service') }
-    }
-
     try {
       const { data, error } = await supabase
         .from('projects')
@@ -156,10 +113,6 @@ export function useProjects() {
   }
 
   const deleteProject = async (id: string) => {
-    if (connectionError) {
-      return { error: new Error('No connection to database service') }
-    }
-
     try {
       const { error } = await supabase
         .from('projects')
@@ -178,8 +131,14 @@ export function useProjects() {
   }
 
   useEffect(() => {
-    fetchProjects()
-  }, [user, connectionError])
+    // Only fetch projects when user changes and we have a user
+    if (user) {
+      fetchProjects()
+    } else {
+      setProjects([])
+      setLoading(false)
+    }
+  }, [user])
 
   return {
     projects,
