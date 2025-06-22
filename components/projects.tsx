@@ -182,9 +182,9 @@ export function Projects() {
   const filteredProjects = allProjects.filter(project => {
     const matchesSearch = project.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          project.author.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesCategory = selectedCategory === "Featured" || 
-                           selectedCategory === "My Projects" || 
-                           project.category === selectedCategory
+    const matchesCategory = activeTab === "Featured" || 
+                           activeTab === "My Projects" || 
+                           project.category === activeTab
     return matchesSearch && matchesCategory
   })
 
