@@ -16,6 +16,7 @@ interface AuthContextType {
   profile: Profile | null
   session: Session | null
   loading: boolean
+  connectionError: boolean
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>
   signUp: (email: string, password: string, fullName?: string) => Promise<{ error: AuthError | null }>
   signInWithGoogle: () => Promise<{ error: AuthError | null }>
@@ -30,6 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [connectionError, setConnectionError] = useState(false)
 
   const fetchProfile = async (userId: string) => {
     try {
@@ -58,10 +60,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         console.log('Initializing auth...')
         
-        // Get initial session with shorter timeout
+        // Check if we have the required environment variables
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+        
+        if (!supabaseUrl || !supabaseAnonKey || 
+            supabaseUrl === 'https://placeholder.supabase.co' || 
+            supabaseAnonKey === 'placeholder-key') {
+          console.warn('Supabase environment variables not configured properly')
+          setConnectionError(true)
+          setLoading(false)
+          return
+        }
+        
+        // Get initial session with timeout
         const sessionPromise = supabase.auth.getSession()
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Supabase connection timeout - check your environment variables')), 15000)
+          setTimeout(() => reject(new Error('Supabase connection timeout')), 10000)
         )
         
         let session = null
@@ -75,8 +90,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           session = result.data?.session
           error = result.error
         } catch (timeoutError) {
-          console.error('Supabase connection failed:', timeoutError)
-          // Continue without session - app should still work in offline mode
+          console.warn('Supabase connection failed, continuing in offline mode:', timeoutError)
+          setConnectionError(true)
           if (mounted) {
             setLoading(false)
           }
@@ -85,6 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         if (error) {
           console.error('Error getting session:', error)
+          setConnectionError(true)
+        } else {
+          setConnectionError(false)
         }
 
         if (mounted) {
@@ -92,8 +110,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setSession(session)
           setUser(session?.user ?? null)
           
-          // Only try to fetch profile if we have a user and the profiles table exists
-          if (session?.user) {
+          // Only try to fetch profile if we have a user and no connection error
+          if (session?.user && !connectionError) {
             try {
               const profileData = await fetchProfile(session.user.id)
               if (mounted) {
@@ -110,7 +128,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error('Error initializing auth:', error)
         if (mounted) {
-          // Stop loading so the app can continue even without auth
+          setConnectionError(true)
           setLoading(false)
         }
       }
@@ -118,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     initializeAuth()
 
-    // Listen for auth changes
+    // Listen for auth changes only if we don't have connection errors
     let subscription
     
     try {
@@ -130,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session)
         setUser(session?.user ?? null)
         
-        if (session?.user) {
+        if (session?.user && !connectionError) {
           try {
             const profileData = await fetchProfile(session.user.id)
             if (mounted) {
@@ -152,7 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription = authSubscription
     } catch (subscriptionError) {
       console.error('Failed to set up auth state listener:', subscriptionError)
-      // Continue without auth state listening
+      setConnectionError(true)
     }
 
     return () => {
@@ -164,46 +182,90 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []) // No dependencies to prevent infinite loops
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-    return { error }
+    if (connectionError) {
+      return { error: new Error('No connection to authentication service') as AuthError }
+    }
+    
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+      return { error }
+    } catch (error) {
+      return { error: error as AuthError }
+    }
   }
 
   const signUp = async (email: string, password: string, fullName?: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
+    if (connectionError) {
+      return { error: new Error('No connection to authentication service') as AuthError }
+    }
+    
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
         },
-      },
-    })
-    return { error }
+      })
+      return { error }
+    } catch (error) {
+      return { error: error as AuthError }
+    }
   }
 
   const signInWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/dashboard`,
-      },
-    })
-    return { error }
+    if (connectionError) {
+      return { error: new Error('No connection to authentication service') as AuthError }
+    }
+    
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`,
+        },
+      })
+      return { error }
+    } catch (error) {
+      return { error: error as AuthError }
+    }
   }
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut()
-    return { error }
+    if (connectionError) {
+      // Allow local sign out even if there's no connection
+      setUser(null)
+      setProfile(null)
+      setSession(null)
+      return { error: null }
+    }
+    
+    try {
+      const { error } = await supabase.auth.signOut()
+      return { error }
+    } catch (error) {
+      return { error: error as AuthError }
+    }
   }
 
   const resetPassword = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    })
-    return { error }
+    if (connectionError) {
+      return { error: new Error('No connection to authentication service') as AuthError }
+    }
+    
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      return { error }
+    } catch (error) {
+      return { error: error as AuthError }
+    }
   }
 
   const value = {
@@ -211,6 +273,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profile,
     session,
     loading,
+    connectionError,
     signIn,
     signUp,
     signInWithGoogle,

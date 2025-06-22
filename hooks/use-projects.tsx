@@ -16,10 +16,10 @@ export interface Project {
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
-  const { user } = useAuth()
+  const { user, connectionError } = useAuth()
 
   const fetchProjects = async () => {
-    if (!user) {
+    if (!user || connectionError) {
       setProjects([])
       setLoading(false)
       return
@@ -59,10 +59,14 @@ export function useProjects() {
       return { data: null, error: new Error('User not authenticated') }
     }
 
+    if (connectionError) {
+      console.error('No connection to database')
+      return { data: null, error: new Error('No connection to database service') }
+    }
+
     try {
       console.log('Creating project with data:', projectData)
       console.log('User ID:', user.id)
-      console.log('User object:', user)
       
       // Clean up social_links - remove empty values
       const cleanSocialLinks = projectData.social_links ? 
@@ -80,16 +84,21 @@ export function useProjects() {
 
       console.log('Insert data:', insertData)
       
-      // Test if we can connect to Supabase first
-      const { data: testData, error: testError } = await supabase
-        .from('projects')
-        .select('count')
-        .eq('user_id', user.id)
-        .limit(1)
+      // Test connection first with a simple query
+      try {
+        const { error: testError } = await supabase
+          .from('projects')
+          .select('count')
+          .eq('user_id', user.id)
+          .limit(1)
 
-      if (testError) {
+        if (testError) {
+          console.error('Connection test failed:', testError)
+          return { data: null, error: testError }
+        }
+      } catch (testError) {
         console.error('Connection test failed:', testError)
-        return { data: null, error: testError }
+        return { data: null, error: new Error('Database connection failed') }
       }
 
       console.log('Connection test passed, proceeding with insert...')
@@ -123,6 +132,10 @@ export function useProjects() {
   }
 
   const updateProject = async (id: string, updates: Partial<Project>) => {
+    if (connectionError) {
+      return { data: null, error: new Error('No connection to database service') }
+    }
+
     try {
       const { data, error } = await supabase
         .from('projects')
@@ -143,6 +156,10 @@ export function useProjects() {
   }
 
   const deleteProject = async (id: string) => {
+    if (connectionError) {
+      return { error: new Error('No connection to database service') }
+    }
+
     try {
       const { error } = await supabase
         .from('projects')
@@ -162,7 +179,7 @@ export function useProjects() {
 
   useEffect(() => {
     fetchProjects()
-  }, [user])
+  }, [user, connectionError])
 
   return {
     projects,

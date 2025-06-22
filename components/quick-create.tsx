@@ -18,7 +18,8 @@ import {
   FlaskConicalIcon,
   DatabaseIcon,
   ArrowUpRightIcon,
-  ZapIcon
+  ZapIcon,
+  AlertTriangleIcon
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -29,6 +30,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { useProjects } from '@/hooks/use-projects'
+import { useAuth } from '@/hooks/use-auth'
 
 interface Plan {
   id: 'personal' | 'creator' | 'business'
@@ -113,6 +115,7 @@ export function QuickCreate({ onClose, onComplete }: QuickCreateProps) {
   const [socialLinks, setSocialLinks] = useState<Record<string, string>>({})
   const [isCreating, setIsCreating] = useState(false)
   const { createProject } = useProjects()
+  const { connectionError } = useAuth()
 
   const handleNext = () => {
     if (currentStep < 2) {
@@ -153,6 +156,11 @@ export function QuickCreate({ onClose, onComplete }: QuickCreateProps) {
       return
     }
 
+    if (connectionError) {
+      toast.error('Cannot create project: No database connection. Please check your environment variables.')
+      return
+    }
+
     setIsCreating(true)
     try {
       console.log('Starting project creation...')
@@ -167,8 +175,15 @@ export function QuickCreate({ onClose, onComplete }: QuickCreateProps) {
 
       if (error) {
         console.error('Project creation failed:', error)
-        toast.error(`Failed to create project: ${error.message || 'Unknown error'}`)
-        console.error('Project creation error:', error)
+        
+        // Provide more specific error messages
+        if (error.message?.includes('connection')) {
+          toast.error('Failed to create project: Database connection error')
+        } else if (error.message?.includes('authentication')) {
+          toast.error('Failed to create project: Authentication required')
+        } else {
+          toast.error(`Failed to create project: ${error.message || 'Unknown error'}`)
+        }
         return
       }
 
@@ -177,8 +192,7 @@ export function QuickCreate({ onClose, onComplete }: QuickCreateProps) {
       onComplete() // Navigate to playground or wherever needed
     } catch (error) {
       console.error('Unexpected error during project creation:', error)
-      toast.error('An unexpected error occurred')
-      console.error('Unexpected error:', error)
+      toast.error('An unexpected error occurred while creating the project')
     } finally {
       setIsCreating(false)
     }
@@ -189,6 +203,16 @@ export function QuickCreate({ onClose, onComplete }: QuickCreateProps) {
       <div className="text-center mb-8">
         <h2 className="text-3xl font-bold text-sidebar-foreground mb-3">Choose Your Plan</h2>
         <p className="text-sidebar-foreground/70 text-lg">Select the plan that best fits your needs</p>
+        
+        {/* Connection Warning */}
+        {connectionError && (
+          <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+            <div className="flex items-center gap-2 text-yellow-500 text-sm">
+              <AlertTriangleIcon className="h-4 w-4" />
+              <span>Offline mode: Projects will be created locally only</span>
+            </div>
+          </div>
+        )}
         
         {/* Billing Toggle with better spacing */}
         <div className="flex items-center justify-center gap-6 mt-8">
@@ -277,6 +301,16 @@ export function QuickCreate({ onClose, onComplete }: QuickCreateProps) {
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-sidebar-foreground mb-2">Project Setup</h2>
         <p className="text-sidebar-foreground/70">Configure your chatbot's basic information</p>
+        
+        {/* Connection Warning */}
+        {connectionError && (
+          <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+            <div className="flex items-center gap-2 text-yellow-500 text-sm">
+              <AlertTriangleIcon className="h-4 w-4" />
+              <span>Offline mode: Project will be created locally only</span>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-6">
@@ -334,7 +368,6 @@ export function QuickCreate({ onClose, onComplete }: QuickCreateProps) {
       </div>
     </div>
   )
-
 
   return (
     <div className="flex flex-col h-full w-full max-w-full overflow-hidden bg-background">
